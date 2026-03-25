@@ -151,15 +151,42 @@ label,
     font-size: 0.85rem;
     letter-spacing: 0.3px;
 }}
-.stTextInput > div > div > input {{
+/* ── Text inputs — aggressive override ── */
+.stTextInput > div > div > input,
+.stTextInput input,
+[data-baseweb="input"] input,
+[data-baseweb="base-input"] input,
+[data-testid="stForm"] input,
+[data-testid="stForm"] input[type="text"],
+[data-testid="stTextInput"] input {{
     background: {INPUT_BG} !important;
+    background-color: {INPUT_BG} !important;
     color: {TEXT_PRIMARY} !important;
+    -webkit-text-fill-color: {TEXT_PRIMARY} !important;
     border: 1px solid {INPUT_BDR} !important;
     border-radius: 10px !important;
     padding: 0.65rem 1rem !important;
     font-size: 0.92rem;
     backdrop-filter: blur(10px);
     transition: all 0.25s ease;
+    caret-color: {TEXT_PRIMARY} !important;
+}}
+/* Input wrapper / container */
+[data-baseweb="input"],
+[data-baseweb="base-input"],
+.stTextInput [data-baseweb="input"],
+.stTextInput [data-baseweb="base-input"] {{
+    background-color: {INPUT_BG} !important;
+    background: {INPUT_BG} !important;
+    border-color: {INPUT_BDR} !important;
+}}
+/* Placeholder */
+.stTextInput input::placeholder,
+[data-baseweb="input"] input::placeholder,
+[data-testid="stTextInput"] input::placeholder {{
+    color: {TEXT_MUTED} !important;
+    -webkit-text-fill-color: {TEXT_MUTED} !important;
+    opacity: 1 !important;
 }}
 .stTextInput > div > div > input:focus {{
     border-color: {ACCENT} !important;
@@ -527,6 +554,22 @@ label,
     background: {ACCENT_DIM} !important;
     border-color: {"rgba(255,255,255,0.20)" if dark else "rgba(0,0,0,0.15)"} !important;
     color: {TEXT_PRIMARY} !important;
+}}
+
+/* ── Clear History / sidebar buttons ── */
+[data-testid="stSidebar"] .stButton > button {{
+    background: transparent !important;
+    color: {TEXT_SECOND} !important;
+    border: 1px solid {GLASS_BDR} !important;
+    border-radius: 10px !important;
+    font-weight: 500 !important;
+    font-size: 0.82rem !important;
+    padding: 0.4rem 1rem !important;
+}}
+[data-testid="stSidebar"] .stButton > button:hover {{
+    background: {ACCENT_DIM} !important;
+    color: {TEXT_PRIMARY} !important;
+    border-color: {"rgba(255,255,255,0.20)" if dark else "rgba(0,0,0,0.15)"} !important;
 }}
 
 /* ── Metric styling ── */
