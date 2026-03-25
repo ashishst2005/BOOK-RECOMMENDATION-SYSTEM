@@ -1,490 +1,614 @@
 """
-app.py  (v2 — Enhanced Edition)
---------------------------------
+app.py  (v3 — Glassmorphism Edition)
+-------------------------------------
 Smart Book Recommendation System — Streamlit Frontend
 
-New features added in v2:
-  1.  Ratings & fake-review-count display
-  2.  Richer card layout (cover initial, meta grid, badges)
-  3.  Autocomplete (selectbox) search for Book Title
-  4.  Visible Similarity Score bar
-  5.  Top-N control  (5 / 10 / 15)
-  6.  Smart "No Results" with genre suggestions
-  7.  Short description + "Read More" expander
-  8.  Dark Mode toggle (sidebar)
-  9.  Save Recommendations as CSV download
-  10. Recommendation History (session state sidebar)
+Design: True black / white, glassmorphism, no emojis, minimalist premium.
 """
 
 import io
-import hashlib
-import random
+import urllib.parse
 import streamlit as st
 import pandas as pd
 
 from data_loader import load_dataset
 from recommender import recommend_by_genre_author, recommend_by_title
 
-# ───────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────
 # Page config
-# ───────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="📚 Smart Book Recommender",
-    page_icon="📚",
+    page_title="Smart Book Recommender",
+    page_icon="B",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ───────────────────────────────────────────────────────────────────────────
-# Session-state initialisation
-# ───────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────
+# Session state
+# ──────────────────────────────────────────────────────────────────────────
 if "dark_mode" not in st.session_state:
-    st.session_state.dark_mode = False
+    st.session_state.dark_mode = True      # default to dark for glass effect
 if "history" not in st.session_state:
-    st.session_state.history = []          # list of dicts: {query, type, results_df}
-if "desc_expanded" not in st.session_state:
-    st.session_state.desc_expanded = {}    # book-hash → bool
+    st.session_state.history = []
 
 dark = st.session_state.dark_mode
 
-# ───────────────────────────────────────────────────────────────────────────
-# Colour palette (light / dark)
-# ───────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────
+# Palette — true black / true white
+# ──────────────────────────────────────────────────────────────────────────
 if dark:
-    BG_GRAD   = "linear-gradient(-45deg, #0f172a, #1e1b4b, #1e293b, #0c1a2e)"
-    CARD_BG   = "rgba(30,27,75,0.85)"
-    CARD_BDR  = "#312e81"
-    TITLE_CLR = "#c7d2fe"
-    HDR_CLR   = "#818cf8"
-    BODY_CLR  = "#cbd5e1"
-    INFO_BG   = "rgba(49,46,129,0.5)"
-    INFO_BDR  = "#4338ca"
-    INFO_CLR  = "#a5b4fc"
-    NR_BG     = "rgba(30,27,75,0.6)"
-    NR_CLR    = "#94a3b8"
-    BANNER_BG = "linear-gradient(135deg,#3730a3 0%,#5b21b6 100%)"
-    SRC_BG    = "rgba(30,27,75,0.9)"
-    SRC_BDR   = "#4338ca"
-    INPUT_BG  = "#1e293b"
-    INPUT_CLR = "#e2e8f0"
-    INPUT_BDR = "#4338ca"
-    SUB_CLR   = "#64748b"
-    TAB_BG    = "rgba(30,27,75,0.55)"
-    TAB_ACT   = "#1e1b4b"
-    HISTORY_BG= "rgba(30,27,75,0.7)"
+    BG_PRIMARY  = "#000000"
+    GLASS       = "rgba(255,255,255,0.06)"
+    GLASS_BDR   = "rgba(255,255,255,0.10)"
+    TEXT_PRIMARY = "#ffffff"
+    TEXT_SECOND  = "rgba(255,255,255,0.55)"
+    TEXT_MUTED   = "rgba(255,255,255,0.35)"
+    ACCENT       = "#ffffff"
+    ACCENT_DIM   = "rgba(255,255,255,0.12)"
+    BANNER_BG    = "rgba(255,255,255,0.08)"
+    BANNER_BDR   = "rgba(255,255,255,0.15)"
+    INPUT_BG     = "rgba(255,255,255,0.05)"
+    INPUT_BDR    = "rgba(255,255,255,0.12)"
+    DIVIDER      = "rgba(255,255,255,0.08)"
+    SCORE_BAR_BG = "rgba(255,255,255,0.08)"
+    SCORE_BAR_FG = "rgba(255,255,255,0.70)"
+    SIDEBAR_BG   = "rgba(10,10,10,0.95)"
 else:
-    BG_GRAD   = "linear-gradient(-45deg,#e3f2fd,#e8eaf6,#ede7f6,#e1f5fe)"
-    CARD_BG   = "rgba(255,255,255,0.85)"
-    CARD_BDR  = "#e0e7ff"
-    TITLE_CLR = "#1e3a8a"
-    HDR_CLR   = "#1d4ed8"
-    BODY_CLR  = "#334155"
-    INFO_BG   = "rgba(224,231,255,0.6)"
-    INFO_BDR  = "#c7d2fe"
-    INFO_CLR  = "#3730a3"
-    NR_BG     = "rgba(255,255,255,0.7)"
-    NR_CLR    = "#64748b"
-    BANNER_BG = "linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%)"
-    SRC_BG    = "rgba(238,242,255,0.9)"
-    SRC_BDR   = "#a5b4fc"
-    INPUT_BG  = "#ffffff"
-    INPUT_CLR = "#334155"
-    INPUT_BDR = "#cbd5e1"
-    SUB_CLR   = "#475569"
-    TAB_BG    = "rgba(255,255,255,0.55)"
-    TAB_ACT   = "#ffffff"
-    HISTORY_BG= "rgba(255,255,255,0.7)"
+    BG_PRIMARY  = "#ffffff"
+    GLASS       = "rgba(0,0,0,0.03)"
+    GLASS_BDR   = "rgba(0,0,0,0.06)"
+    TEXT_PRIMARY = "#000000"
+    TEXT_SECOND  = "rgba(0,0,0,0.55)"
+    TEXT_MUTED   = "rgba(0,0,0,0.35)"
+    ACCENT       = "#000000"
+    ACCENT_DIM   = "rgba(0,0,0,0.06)"
+    BANNER_BG    = "rgba(0,0,0,0.04)"
+    BANNER_BDR   = "rgba(0,0,0,0.08)"
+    INPUT_BG     = "rgba(0,0,0,0.02)"
+    INPUT_BDR    = "rgba(0,0,0,0.10)"
+    DIVIDER      = "rgba(0,0,0,0.06)"
+    SCORE_BAR_BG = "rgba(0,0,0,0.06)"
+    SCORE_BAR_FG = "rgba(0,0,0,0.65)"
+    SIDEBAR_BG   = "rgba(250,250,250,0.97)"
 
-# ───────────────────────────────────────────────────────────────────────────
-# CSS injection
-# ───────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────
+# CSS — glassmorphism + animations
+# ──────────────────────────────────────────────────────────────────────────
 st.markdown(f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-@keyframes gradientMove {{
-    0%   {{background-position:0% 50%;}}
-    50%  {{background-position:100% 50%;}}
-    100% {{background-position:0% 50%;}}
+/* ── Animations ── */
+@keyframes fadeInUp {{
+    from {{ opacity:0; transform:translateY(18px); }}
+    to   {{ opacity:1; transform:translateY(0); }}
+}}
+@keyframes fadeIn {{
+    from {{ opacity:0; }}
+    to   {{ opacity:1; }}
+}}
+@keyframes slideDown {{
+    from {{ opacity:0; transform:translateY(-8px); }}
+    to   {{ opacity:1; transform:translateY(0); }}
 }}
 
-html,body,[data-testid="stAppViewContainer"] {{
-    font-family:'Inter',sans-serif;
-    background:{BG_GRAD};
-    background-size:400% 400%;
-    animation:gradientMove 12s ease infinite;
-    min-height:100vh;
+/* ── Base ── */
+html, body, [data-testid="stAppViewContainer"] {{
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: {BG_PRIMARY} !important;
+    color: {TEXT_PRIMARY};
 }}
-[data-testid="stHeader"]{{background:transparent!important;}}
-
-.block-container{{max-width:1100px;padding-top:1.5rem;padding-bottom:3rem;}}
+[data-testid="stHeader"] {{ background: transparent !important; }}
+.block-container {{ max-width:1000px; padding-top:2rem; padding-bottom:3rem; }}
 
 /* ── Sidebar ── */
-[data-testid="stSidebar"]{{
-    background:{"rgba(15,23,42,0.92)" if dark else "rgba(255,255,255,0.88)"}!important;
-    border-right:1.5px solid {CARD_BDR};
+[data-testid="stSidebar"] {{
+    background: {SIDEBAR_BG} !important;
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border-right: 1px solid {GLASS_BDR};
 }}
-[data-testid="stSidebar"] * {{color:{BODY_CLR}!important;}}
+[data-testid="stSidebar"] * {{ color: {TEXT_PRIMARY} !important; }}
 
-/* ── Title ── */
-.main-title{{
-    text-align:center;font-size:2.8rem;font-weight:700;
-    color:{TITLE_CLR};letter-spacing:-0.5px;
-    margin-bottom:0.2rem;text-shadow:0 2px 8px rgba(30,58,138,.10);
+/* ── Typography ── */
+.main-title {{
+    text-align: center;
+    font-size: 2.4rem;
+    font-weight: 700;
+    color: {TEXT_PRIMARY};
+    letter-spacing: -1px;
+    margin-bottom: 0.15rem;
+    animation: fadeInUp 0.6s ease;
 }}
-.subtitle{{
-    text-align:center;font-size:1.05rem;color:{SUB_CLR};
-    margin-bottom:2rem;font-weight:400;
+.subtitle {{
+    text-align: center;
+    font-size: 0.95rem;
+    color: {TEXT_SECOND};
+    margin-bottom: 2.5rem;
+    font-weight: 400;
+    letter-spacing: 0.2px;
+    animation: fadeInUp 0.6s ease 0.1s both;
 }}
 
 /* ── Section headers ── */
-.section-header{{
-    font-size:1.2rem;font-weight:600;color:{HDR_CLR};
-    margin-bottom:0.9rem;border-left:4px solid #6366f1;padding-left:.75rem;
+.section-header {{
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: {TEXT_SECOND};
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    margin-bottom: 1rem;
+    padding-left: 0;
+    animation: fadeIn 0.4s ease;
 }}
 
-/* ── Inputs (text) ── */
-label,[data-testid="stTextInput"] label{{color:{BODY_CLR}!important;font-weight:500;font-size:.95rem;}}
-.stTextInput>div>div>input{{
-    background-color:{INPUT_BG}!important;color:{INPUT_CLR}!important;
-    border:1.5px solid {INPUT_BDR}!important;border-radius:10px!important;
-    padding:0.6rem 1rem!important;font-size:.97rem;transition:border-color .2s;
+/* ── Inputs ── */
+label,
+[data-testid="stTextInput"] label {{
+    color: {TEXT_SECOND} !important;
+    font-weight: 500;
+    font-size: 0.85rem;
+    letter-spacing: 0.3px;
 }}
-.stTextInput>div>div>input:focus{{
-    border-color:#6366f1!important;
-    box-shadow:0 0 0 3px rgba(99,102,241,.15)!important;
-    outline:none!important;
+.stTextInput > div > div > input {{
+    background: {INPUT_BG} !important;
+    color: {TEXT_PRIMARY} !important;
+    border: 1px solid {INPUT_BDR} !important;
+    border-radius: 10px !important;
+    padding: 0.65rem 1rem !important;
+    font-size: 0.92rem;
+    backdrop-filter: blur(10px);
+    transition: all 0.25s ease;
+}}
+.stTextInput > div > div > input:focus {{
+    border-color: {ACCENT} !important;
+    box-shadow: 0 0 0 2px {"rgba(255,255,255,0.08)" if dark else "rgba(0,0,0,0.05)"} !important;
+    outline: none !important;
 }}
 
 /* ── Selectbox ── */
-[data-testid="stSelectbox"] label{{color:{BODY_CLR}!important;font-weight:500;font-size:.95rem;}}
-[data-testid="stSelectbox"] div[data-baseweb="select"] > div{{
-    background:{INPUT_BG}!important;color:{INPUT_CLR}!important;
-    border:1.5px solid {INPUT_BDR}!important;border-radius:10px!important;
+[data-testid="stSelectbox"] label {{
+    color: {TEXT_SECOND} !important;
+    font-weight: 500;
+    font-size: 0.85rem;
+}}
+[data-testid="stSelectbox"] div[data-baseweb="select"] > div {{
+    background: {INPUT_BG} !important;
+    color: {TEXT_PRIMARY} !important;
+    border: 1px solid {INPUT_BDR} !important;
+    border-radius: 10px !important;
+    backdrop-filter: blur(10px);
 }}
 
 /* ── Buttons ── */
-.stButton>button{{
-    background:linear-gradient(135deg,#4f46e5,#6366f1)!important;
-    color:#e0e7ff!important;border:none!important;border-radius:10px!important;
-    padding:.65rem 2rem!important;font-size:1rem!important;font-weight:600!important;
-    cursor:pointer!important;transition:all .25s ease!important;
-    box-shadow:0 4px 14px rgba(79,70,229,.3)!important;letter-spacing:0.3px;
+.stButton > button {{
+    background: {TEXT_PRIMARY} !important;
+    color: {BG_PRIMARY} !important;
+    border: none !important;
+    border-radius: 10px !important;
+    padding: 0.6rem 1.8rem !important;
+    font-size: 0.9rem !important;
+    font-weight: 600 !important;
+    cursor: pointer !important;
+    transition: all 0.3s cubic-bezier(0.4,0,0.2,1) !important;
+    letter-spacing: 0.3px;
 }}
-.stButton>button:hover{{
-    transform:translateY(-2px)!important;
-    box-shadow:0 6px 20px rgba(79,70,229,.45)!important;
-    background:linear-gradient(135deg,#4338ca,#4f46e5)!important;
+.stButton > button:hover {{
+    transform: translateY(-1px) !important;
+    box-shadow: 0 8px 24px {"rgba(255,255,255,0.15)" if dark else "rgba(0,0,0,0.12)"} !important;
+    opacity: 0.9 !important;
 }}
-.stButton>button:active{{transform:translateY(0px)!important;}}
+.stButton > button:active {{ transform: translateY(0px) !important; }}
+
+/* ── Form submit button ── */
+.stFormSubmitButton > button {{
+    background: {TEXT_PRIMARY} !important;
+    color: {BG_PRIMARY} !important;
+    border: none !important;
+    border-radius: 10px !important;
+    padding: 0.6rem 1.8rem !important;
+    font-size: 0.9rem !important;
+    font-weight: 600 !important;
+    cursor: pointer !important;
+    transition: all 0.3s cubic-bezier(0.4,0,0.2,1) !important;
+    letter-spacing: 0.3px;
+}}
+.stFormSubmitButton > button:hover {{
+    transform: translateY(-1px) !important;
+    box-shadow: 0 8px 24px {"rgba(255,255,255,0.15)" if dark else "rgba(0,0,0,0.12)"} !important;
+    opacity: 0.9 !important;
+}}
 
 /* ── Tabs ── */
-[data-baseweb="tab-list"]{{
-    gap:.5rem;background-color:transparent!important;
-    border-bottom:2px solid #c7d2fe;padding-bottom:0;
+[data-baseweb="tab-list"] {{
+    gap: 0;
+    background-color: transparent !important;
+    border-bottom: 1px solid {DIVIDER};
+    padding-bottom: 0;
 }}
-[data-baseweb="tab"]{{
-    background-color:{TAB_BG}!important;border-radius:10px 10px 0 0!important;
-    border:1.5px solid #c7d2fe!important;border-bottom:none!important;
-    color:{SUB_CLR}!important;font-weight:500!important;
-    padding:.55rem 1.4rem!important;transition:all .2s;
+[data-baseweb="tab"] {{
+    background-color: transparent !important;
+    border: none !important;
+    border-bottom: 2px solid transparent !important;
+    color: {TEXT_MUTED} !important;
+    font-weight: 500 !important;
+    padding: 0.6rem 1.5rem !important;
+    font-size: 0.88rem !important;
+    transition: all 0.25s ease;
+    border-radius: 0 !important;
 }}
-[aria-selected="true"][data-baseweb="tab"]{{
-    background-color:{TAB_ACT}!important;color:#4f46e5!important;
-    font-weight:700!important;border-color:#6366f1!important;
-    border-bottom:2px solid {TAB_ACT}!important;
+[data-baseweb="tab"]:hover {{
+    color: {TEXT_SECOND} !important;
+}}
+[aria-selected="true"][data-baseweb="tab"] {{
+    background-color: transparent !important;
+    color: {TEXT_PRIMARY} !important;
+    font-weight: 600 !important;
+    border-bottom: 2px solid {TEXT_PRIMARY} !important;
 }}
 
-/* ── Cards ── */
-.book-card{{
-    background:{CARD_BG};border:1.5px solid {CARD_BDR};
-    border-radius:14px;padding:1.1rem 1.4rem 1rem;margin-bottom:1rem;
-    box-shadow:0 2px 12px rgba(99,102,241,.08);
-    transition:box-shadow .2s,transform .2s;
+/* ── Glass cards ── */
+.book-card {{
+    background: {GLASS};
+    border: 1px solid {GLASS_BDR};
+    border-radius: 14px;
+    padding: 1.2rem 1.4rem;
+    margin-bottom: 0.75rem;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
+    animation: fadeInUp 0.45s ease both;
 }}
-.book-card:hover{{
-    box-shadow:0 6px 24px rgba(99,102,241,.18);
-    transform:translateY(-2px);
+.book-card:hover {{
+    background: {"rgba(255,255,255,0.09)" if dark else "rgba(0,0,0,0.04)"};
+    border-color: {"rgba(255,255,255,0.18)" if dark else "rgba(0,0,0,0.10)"};
+    transform: translateY(-2px);
 }}
 
-.book-cover{{
-    width:52px;height:72px;border-radius:8px;
-    background:linear-gradient(135deg,#6366f1,#7c3aed);
-    display:flex;align-items:center;justify-content:center;
-    font-size:1.5rem;font-weight:700;color:#fff;
-    flex-shrink:0;box-shadow:0 2px 8px rgba(99,102,241,.3);
+.book-cover {{
+    width: 48px;
+    height: 68px;
+    border-radius: 6px;
+    background: {ACCENT_DIM};
+    border: 1px solid {GLASS_BDR};
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: {TEXT_PRIMARY};
+    flex-shrink: 0;
+    overflow: hidden;
 }}
-.card-grid{{display:flex;gap:1rem;align-items:flex-start;}}
-.card-body{{flex:1;min-width:0;}}
+.book-cover img {{
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 5px;
+}}
+.book-cover-fallback {{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    font-size: 1.2rem;
+    font-weight: 700;
+}}
+.card-grid {{ display: flex; gap: 1rem; align-items: flex-start; }}
+.card-body {{ flex: 1; min-width: 0; }}
 
-.book-title{{font-size:1.1rem;font-weight:700;color:{TITLE_CLR};margin-bottom:.2rem;}}
-.book-meta{{font-size:.87rem;color:{BODY_CLR};margin-bottom:.45rem;opacity:.9;}}
-.book-desc-short{{font-size:.88rem;color:{BODY_CLR};line-height:1.5;margin-top:.4rem;}}
+.book-title {{
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: {TEXT_PRIMARY};
+    margin-bottom: 0.15rem;
+    letter-spacing: -0.2px;
+}}
+
+/* ── Buy link ── */
+.buy-link {{
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 600;
+    border-radius: 20px;
+    padding: 0.15rem 0.7rem;
+    margin-left: 0.2rem;
+    border: 1px solid {GLASS_BDR};
+    background: transparent;
+    color: {TEXT_SECOND};
+    text-decoration: none;
+    letter-spacing: 0.3px;
+    transition: all 0.2s ease;
+}}
+.buy-link:hover {{
+    background: {TEXT_PRIMARY};
+    color: {BG_PRIMARY};
+    border-color: {TEXT_PRIMARY};
+    text-decoration: none;
+}}
+
+/* ── Top banner cover ── */
+.top-banner-grid {{
+    display: flex;
+    gap: 1.2rem;
+    align-items: flex-start;
+}}
+.top-banner-cover {{
+    width: 72px;
+    height: 100px;
+    border-radius: 8px;
+    overflow: hidden;
+    flex-shrink: 0;
+    background: {ACCENT_DIM};
+    border: 1px solid {BANNER_BDR};
+}}
+.top-banner-cover img {{
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}}
+.book-meta {{
+    font-size: 0.82rem;
+    color: {TEXT_SECOND};
+    margin-bottom: 0.4rem;
+}}
+.book-desc-short {{
+    font-size: 0.84rem;
+    color: {TEXT_MUTED};
+    line-height: 1.55;
+    margin-top: 0.4rem;
+}}
+
+/* ── Rank number ── */
+.rank-num {{
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: {TEXT_MUTED};
+    letter-spacing: 0.5px;
+    margin-bottom: 0.35rem;
+}}
 
 /* ── Badges ── */
-.rating-badge{{
-    display:inline-block;
-    background:linear-gradient(135deg,#fbbf24,#f59e0b);
-    color:#fff;font-size:.78rem;font-weight:700;
-    border-radius:20px;padding:.14rem .6rem;margin-right:.4rem;
+.badge {{
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 600;
+    border-radius: 20px;
+    padding: 0.12rem 0.6rem;
+    margin-right: 0.35rem;
+    border: 1px solid {GLASS_BDR};
+    background: {ACCENT_DIM};
+    color: {TEXT_SECOND};
+    letter-spacing: 0.2px;
 }}
-.reviews-badge{{
-    display:inline-block;background:#f0fdf4;color:#166534;
-    font-size:.78rem;font-weight:600;border-radius:20px;
-    padding:.14rem .6rem;margin-right:.4rem;
-    border:1px solid #bbf7d0;
-}}
-.genre-badge{{
-    display:inline-block;background:#ede9fe;color:#5b21b6;
-    font-size:.78rem;font-weight:600;border-radius:20px;
-    padding:.14rem .6rem;margin-right:.4rem;
-}}
-.score-badge{{
-    display:inline-block;
-    background:linear-gradient(135deg,#6366f1,#818cf8);
-    color:#fff;font-size:.78rem;font-weight:700;
-    border-radius:20px;padding:.14rem .6rem;
+.badge-accent {{
+    background: {TEXT_PRIMARY};
+    color: {BG_PRIMARY};
+    border-color: transparent;
 }}
 
-/* ── Score bar wrapper ── */
-.score-bar-wrap{{margin-top:.35rem;}}
-.score-bar-bg{{
-    background:{"#1e293b" if dark else "#e0e7ff"};
-    border-radius:99px;height:6px;overflow:hidden;
+/* ── Score bar ── */
+.score-bar-wrap {{ margin-top: 0.5rem; }}
+.score-bar-bg {{
+    background: {SCORE_BAR_BG};
+    border-radius: 99px;
+    height: 4px;
+    overflow: hidden;
 }}
-.score-bar-fill{{
-    height:6px;border-radius:99px;
-    background:linear-gradient(90deg,#6366f1,#7c3aed);
-    transition:width .6s ease;
+.score-bar-fill {{
+    height: 4px;
+    border-radius: 99px;
+    background: {SCORE_BAR_FG};
+    transition: width 0.8s cubic-bezier(0.4,0,0.2,1);
 }}
-.score-label{{
-    font-size:.75rem;color:{HDR_CLR};font-weight:600;margin-bottom:.15rem;
+.score-label {{
+    font-size: 0.72rem;
+    color: {TEXT_MUTED};
+    font-weight: 500;
+    margin-bottom: 0.12rem;
+    letter-spacing: 0.3px;
 }}
 
 /* ── Top banner ── */
-.top-rec-banner{{
-    background:{BANNER_BG};border-radius:16px;
-    padding:1.6rem 2rem;margin-bottom:1.5rem;
-    box-shadow:0 4px 20px rgba(79,70,229,.25);
+.top-rec-banner {{
+    background: {BANNER_BG};
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid {BANNER_BDR};
+    border-radius: 16px;
+    padding: 1.6rem 2rem;
+    margin-bottom: 1.5rem;
+    animation: fadeInUp 0.5s ease;
 }}
-.top-rec-label{{
-    font-size:.75rem;font-weight:600;letter-spacing:1px;
-    text-transform:uppercase;color:#c7d2fe;margin-bottom:.4rem;
+.top-rec-label {{
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: {TEXT_MUTED};
+    margin-bottom: 0.5rem;
 }}
-.top-rec-title{{font-size:1.5rem;font-weight:700;color:#ffffff;margin-bottom:.25rem;}}
-.top-rec-meta{{font-size:.88rem;color:#c7d2fe;margin-bottom:.65rem;line-height:1.6;}}
-.top-rec-desc{{font-size:.9rem;color:#e0e7ff;line-height:1.55;}}
+.top-rec-title {{
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: {TEXT_PRIMARY};
+    margin-bottom: 0.2rem;
+    letter-spacing: -0.3px;
+}}
+.top-rec-meta {{
+    font-size: 0.85rem;
+    color: {TEXT_SECOND};
+    margin-bottom: 0.65rem;
+    line-height: 1.6;
+}}
+.top-rec-desc {{
+    font-size: 0.86rem;
+    color: {TEXT_MUTED};
+    line-height: 1.6;
+}}
 
 /* ── Info box ── */
-.info-box{{
-    background:{INFO_BG};border:1.5px solid {INFO_BDR};
-    border-radius:10px;padding:.75rem 1.1rem;
-    color:{INFO_CLR};font-size:.9rem;margin-bottom:1.3rem;
+.info-box {{
+    background: {GLASS};
+    border: 1px solid {GLASS_BDR};
+    border-radius: 10px;
+    padding: 0.7rem 1rem;
+    color: {TEXT_SECOND};
+    font-size: 0.84rem;
+    margin-bottom: 1.3rem;
+    backdrop-filter: blur(12px);
+    animation: fadeIn 0.4s ease;
 }}
 
 /* ── No results ── */
-.no-results{{
-    text-align:center;padding:2rem;
-    background:{NR_BG};border-radius:14px;
-    color:{NR_CLR};font-size:1rem;
+.no-results {{
+    text-align: center;
+    padding: 2.5rem 1.5rem;
+    background: {GLASS};
+    border: 1px solid {GLASS_BDR};
+    border-radius: 14px;
+    color: {TEXT_SECOND};
+    font-size: 0.95rem;
+    backdrop-filter: blur(16px);
+    animation: fadeIn 0.4s ease;
 }}
-.no-results ul{{list-style:none;padding:0;margin:.75rem 0 0;}}
-.no-results li{{
-    display:inline-block;margin:.25rem;
-    background:{"rgba(99,102,241,.2)" if dark else "#e0e7ff"};
-    color:{"#a5b4fc" if dark else "#4338ca"};
-    border-radius:20px;padding:.25rem .9rem;font-size:.88rem;
-    font-weight:600;cursor:default;
+.no-results ul {{ list-style: none; padding: 0; margin: 1rem 0 0; }}
+.no-results li {{
+    display: inline-block;
+    margin: 0.2rem;
+    background: {ACCENT_DIM};
+    color: {TEXT_SECOND};
+    border-radius: 20px;
+    padding: 0.25rem 0.85rem;
+    font-size: 0.82rem;
+    font-weight: 500;
+    border: 1px solid {GLASS_BDR};
+    cursor: default;
+    transition: all 0.2s ease;
+}}
+.no-results li:hover {{
+    background: {"rgba(255,255,255,0.12)" if dark else "rgba(0,0,0,0.06)"};
 }}
 
 /* ── History item ── */
-.hist-item{{
-    background:{HISTORY_BG};border:1px solid {CARD_BDR};
-    border-radius:10px;padding:.5rem .75rem;
-    font-size:.84rem;color:{BODY_CLR};margin-bottom:.5rem;
+.hist-item {{
+    background: {GLASS};
+    border: 1px solid {GLASS_BDR};
+    border-radius: 10px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.82rem;
+    color: {TEXT_SECOND};
+    margin-bottom: 0.4rem;
+    backdrop-filter: blur(10px);
+    transition: background 0.2s ease;
+    animation: slideDown 0.3s ease both;
+}}
+.hist-item:hover {{
+    background: {"rgba(255,255,255,0.08)" if dark else "rgba(0,0,0,0.04)"};
 }}
 
-/* ── Slider label ── */
-[data-testid="stSlider"] label{{color:{BODY_CLR}!important;font-weight:500;}}
+/* ── Slider ── */
+[data-testid="stSlider"] label {{ color: {TEXT_SECOND} !important; font-weight: 500; }}
 
 /* ── Download button ── */
-[data-testid="stDownloadButton"]>button{{
-    background:linear-gradient(135deg,#059669,#10b981)!important;
-    color:#ecfdf5!important;border-radius:10px!important;
-    border:none!important;font-weight:600!important;
-    box-shadow:0 4px 12px rgba(5,150,105,.3)!important;
+[data-testid="stDownloadButton"] > button {{
+    background: transparent !important;
+    color: {TEXT_SECOND} !important;
+    border: 1px solid {GLASS_BDR} !important;
+    border-radius: 10px !important;
+    font-weight: 500 !important;
+    font-size: 0.85rem !important;
+    transition: all 0.25s ease !important;
+    backdrop-filter: blur(10px);
+}}
+[data-testid="stDownloadButton"] > button:hover {{
+    background: {ACCENT_DIM} !important;
+    border-color: {"rgba(255,255,255,0.20)" if dark else "rgba(0,0,0,0.15)"} !important;
+    color: {TEXT_PRIMARY} !important;
 }}
 
+/* ── Metric styling ── */
+[data-testid="stMetric"] {{
+    background: {GLASS};
+    border: 1px solid {GLASS_BDR};
+    border-radius: 12px;
+    padding: 0.8rem 1rem;
+    backdrop-filter: blur(12px);
+}}
+[data-testid="stMetricValue"] {{ color: {TEXT_PRIMARY} !important; font-weight: 600 !important; }}
+[data-testid="stMetricLabel"] {{ color: {TEXT_MUTED} !important; font-size: 0.78rem !important; }}
+
+/* ── Expander ── */
+.streamlit-expanderHeader {{
+    font-size: 0.84rem !important;
+    color: {TEXT_SECOND} !important;
+    font-weight: 500 !important;
+}}
+
+/* ── Source card accent ── */
+.source-label {{
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: {TEXT_MUTED};
+    margin-bottom: 0.4rem;
+}}
+
+/* ── Divider line ── */
+.glass-divider {{
+    height: 1px;
+    background: {DIVIDER};
+    margin: 1.5rem 0;
+    animation: fadeIn 0.4s ease;
+}}
 </style>
 """, unsafe_allow_html=True)
 
 
-# ───────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────
 # Dataset (cached)
-# ───────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────
 @st.cache_data(show_spinner=False)
 def get_data() -> pd.DataFrame:
     return load_dataset()
 
-with st.spinner("📚 Loading book dataset…"):
+with st.spinner("Loading book dataset..."):
     df = get_data()
 
-# Pre-build sorted title list for autocomplete
 ALL_TITLES: list[str] = sorted(df["Title"].dropna().unique().tolist())
+ALL_GENRES: list[str] = sorted(df["Genre"].dropna().unique().tolist())
 
 
-# ───────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────
 # Utilities
-# ───────────────────────────────────────────────────────────────────────────
-
-def _book_hash(title: str) -> str:
-    return hashlib.md5(title.encode()).hexdigest()[:8]
-
-
-def _fake_reviews(rating: float) -> int:
-    """Generate a deterministic plausible review count from rating (for demo)."""
-    seed = int(rating * 100) if isinstance(rating, float) else 400
-    rng = random.Random(seed)
-    return rng.randint(1_000, 50_000)
+# ──────────────────────────────────────────────────────────────────────────
+def _cover_html(isbn: str, title: str) -> str:
+    """Return <img> from Open Library Covers API, or a fallback letter."""
+    fallback = title[0].upper() if title else "B"
+    if isbn and isbn.strip() and isbn.strip() != "nan":
+        url = f"https://covers.openlibrary.org/b/isbn/{isbn.strip()}-M.jpg"
+        return f'<img src="{url}" alt="{title}" onerror="this.outerHTML=\'{fallback}\'" loading="lazy">'
+    return f'<span class="book-cover-fallback">{fallback}</span>'
 
 
-def _cover_initial(title: str) -> str:
-    return title[0].upper() if title else "📚"
+def _buy_url(title: str, author: str) -> str:
+    """Return an Amazon search URL for the book."""
+    query = urllib.parse.quote_plus(f"{title} {author}")
+    return f"https://www.amazon.com/s?k={query}"
 
 
-def _score_bar(score: float, label: str = "Similarity Score") -> str:
+def _score_bar(score: float) -> str:
     pct = int(score * 100)
     return f"""
     <div class="score-bar-wrap">
-        <div class="score-label">{label}: {pct}%</div>
+        <div class="score-label">Match: {pct}%</div>
         <div class="score-bar-bg">
             <div class="score-bar-fill" style="width:{pct}%"></div>
         </div>
     </div>"""
-
-
-# ───────────────────────────────────────────────────────────────────────────
-# Render helpers
-# ───────────────────────────────────────────────────────────────────────────
-
-def render_top_book(book: dict) -> None:
-    """Highlighted banner for the #1 recommendation."""
-    rating = book.get("Rating", None)
-    reviews = _fake_reviews(rating) if isinstance(rating, (int, float)) else 0
-    rating_str = f"{rating:.2f} ⭐  |  📝 {reviews:,} reviews" if isinstance(rating, (int, float)) else "N/A"
-    score = book.get("Score", 0)
-    pct = int(score * 100)
-    desc = book.get("Description", "No description available.")
-    st.markdown(f"""
-    <div class="top-rec-banner">
-        <div class="top-rec-label">🏆 Top Recommendation</div>
-        <div class="top-rec-title">{book.get('Title','Unknown Title')}</div>
-        <div class="top-rec-meta">
-            ✍️ {book.get('Author','Unknown')} &nbsp;|&nbsp;
-            📖 {book.get('Genre','—')} &nbsp;|&nbsp;
-            {rating_str}
-        </div>
-        <div style="margin-bottom:.65rem;">
-            <div class="score-label">Similarity Score: {pct}%</div>
-            <div class="score-bar-bg" style="max-width:320px;">
-                <div class="score-bar-fill" style="width:{pct}%"></div>
-            </div>
-        </div>
-        <div class="top-rec-desc">{desc[:280]}{"…" if len(desc)>280 else ""}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-def render_book_card(book: dict, idx: int = 0, show_score: bool = True) -> None:
-    """Rich card with cover initial, score bar, and Read More expander."""
-    title   = book.get("Title", "Unknown Title")
-    author  = book.get("Author", "Unknown Author")
-    genre   = book.get("Genre", "")
-    rating  = book.get("Rating", None)
-    score   = book.get("Score", 0)
-    desc    = book.get("Description", "No description available.")
-    initial = _cover_initial(title)
-    bh      = _book_hash(title)
-
-    reviews    = _fake_reviews(rating) if isinstance(rating, (int, float)) else 0
-    rating_html  = f'<span class="rating-badge">⭐ {rating:.2f}</span>' if isinstance(rating, (int, float)) else ""
-    reviews_html = f'<span class="reviews-badge">📝 {reviews:,} reviews</span>' if reviews else ""
-    genre_html   = f'<span class="genre-badge">📖 {genre}</span>' if genre else ""
-    score_html   = f'<span class="score-badge">🎯 {int(score*100)}%</span>' if show_score else ""
-    bar_html     = _score_bar(score) if show_score else ""
-
-    short_desc   = desc[:150] + ("…" if len(desc) > 150 else "")
-
-    st.markdown(f"""
-    <div class="book-card">
-        <div class="card-grid">
-            <div class="book-cover">{initial}</div>
-            <div class="card-body">
-                <div class="book-title">{title}</div>
-                <div class="book-meta">✍️ {author}</div>
-                <div style="margin-bottom:.4rem">{rating_html}{reviews_html}{genre_html}{score_html}</div>
-                {bar_html}
-                <div class="book-desc-short">{short_desc}</div>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Read More expander (avoids clutter)
-    if len(desc) > 150:
-        with st.expander("📖 Read More", expanded=False):
-            st.markdown(f'<span style="color:{BODY_CLR};font-size:.9rem;line-height:1.6">{desc}</span>',
-                        unsafe_allow_html=True)
-
-
-def render_source_card(book: dict) -> None:
-    """Source/matched book card."""
-    title   = book.get("Title", "Unknown Title")
-    author  = book.get("Author", "Unknown Author")
-    genre   = book.get("Genre", "")
-    rating  = book.get("Rating", None)
-    desc    = book.get("Description", "No description available.")
-    initial = _cover_initial(title)
-    reviews = _fake_reviews(rating) if isinstance(rating, (int, float)) else 0
-
-    rating_html  = f'<span class="rating-badge">⭐ {rating:.2f}</span>' if isinstance(rating, (int, float)) else ""
-    reviews_html = f'<span class="reviews-badge">📝 {reviews:,} reviews</span>' if reviews else ""
-    genre_html   = f'<span class="genre-badge">📖 {genre}</span>' if genre else ""
-
-    st.markdown(f"""
-    <div class="book-card" style="border-color:{SRC_BDR};background:{SRC_BG};">
-        <div style="font-size:.72rem;font-weight:600;letter-spacing:1px;text-transform:uppercase;
-                    color:#6366f1;margin-bottom:.35rem;">🔍 Matched Source Book</div>
-        <div class="card-grid">
-            <div class="book-cover" style="background:linear-gradient(135deg,#6366f1,#4338ca)">{initial}</div>
-            <div class="card-body">
-                <div class="book-title">{title}</div>
-                <div class="book-meta">✍️ {author}</div>
-                <div style="margin-bottom:.4rem">{rating_html}{reviews_html}{genre_html}</div>
-                <div class="book-desc-short">{desc[:150]}{"…" if len(desc)>150 else ""}</div>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    if len(desc) > 150:
-        with st.expander("📖 Read More", expanded=False):
-            st.markdown(f'<span style="color:{BODY_CLR};font-size:.9rem;line-height:1.6">{desc}</span>',
-                        unsafe_allow_html=True)
-
-
-def render_no_results(query: str = "") -> None:
-    popular_genres = ["Fantasy", "Fiction", "Science Fiction", "Mystery",
-                      "Thriller", "Romance", "Horror", "Dystopian", "Non-Fiction"]
-    pills = "".join(f"<li>{g}</li>" for g in popular_genres)
-    msg = f'😔 No results for "<b>{query}</b>".' if query else "😔 No matching books found."
-    st.markdown(f"""
-    <div class="no-results">
-        {msg}
-        <br><span style="font-size:.88rem">Try one of these popular genres:</span>
-        <ul>{pills}</ul>
-    </div>
-    """, unsafe_allow_html=True)
 
 
 def df_to_csv_bytes(results_df: pd.DataFrame) -> bytes:
@@ -495,7 +619,6 @@ def df_to_csv_bytes(results_df: pd.DataFrame) -> bytes:
 
 def add_to_history(query: str, qtype: str, results_df: pd.DataFrame) -> None:
     entry = {"query": query, "type": qtype, "results": results_df}
-    # Avoid exact duplicate consecutive entries
     if st.session_state.history and st.session_state.history[-1]["query"] == query:
         return
     st.session_state.history.insert(0, entry)
@@ -503,87 +626,235 @@ def add_to_history(query: str, qtype: str, results_df: pd.DataFrame) -> None:
         st.session_state.history.pop()
 
 
-# ───────────────────────────────────────────────────────────────────────────
-# Sidebar — Dark Mode + History
-# ───────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────
+# Render helpers
+# ──────────────────────────────────────────────────────────────────────────
+def render_top_book(book: dict) -> None:
+    """Highlighted banner for the #1 recommendation."""
+    title  = book.get("Title", "Unknown Title")
+    author = book.get("Author", "Unknown")
+    genre  = book.get("Genre", "—")
+    rating = book.get("Rating", None)
+    isbn   = str(book.get("ISBN", ""))
+    rating_str = f"{rating:.1f} / 5.0" if isinstance(rating, (int, float)) else "—"
+    score = book.get("Score", 0)
+    pct = int(score * 100)
+    desc = book.get("Description", "No description available.")
+    cover = _cover_html(isbn, title)
+    buy  = _buy_url(title, author)
+    st.markdown(f"""
+    <div class="top-rec-banner">
+        <div class="top-rec-label">Best Match</div>
+        <div class="top-banner-grid">
+            <div class="top-banner-cover">{cover}</div>
+            <div>
+                <div class="top-rec-title">{title}</div>
+                <div class="top-rec-meta">
+                    {author} &nbsp;·&nbsp;
+                    {genre} &nbsp;·&nbsp;
+                    {rating_str}
+                </div>
+                <div style="margin-bottom:.65rem;">
+                    <div class="score-label">Match: {pct}%</div>
+                    <div class="score-bar-bg" style="max-width:280px;">
+                        <div class="score-bar-fill" style="width:{pct}%"></div>
+                    </div>
+                </div>
+                <div class="top-rec-desc">{desc[:260]}{"..." if len(desc)>260 else ""}</div>
+                <div style="margin-top:.6rem"><a class="buy-link" href="{buy}" target="_blank" rel="noopener">Buy on Amazon</a></div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def render_book_card(book: dict, rank: int = 0, show_score: bool = True) -> None:
+    """Glass card for a recommendation with cover image and buy link."""
+    title   = book.get("Title", "Unknown Title")
+    author  = book.get("Author", "Unknown Author")
+    genre   = book.get("Genre", "")
+    rating  = book.get("Rating", None)
+    isbn    = str(book.get("ISBN", ""))
+    score   = book.get("Score", 0)
+    desc    = book.get("Description", "No description available.")
+    cover   = _cover_html(isbn, title)
+    buy     = _buy_url(title, author)
+
+    rating_html  = f'<span class="badge">{rating:.1f}</span>' if isinstance(rating, (int, float)) else ""
+    genre_html   = f'<span class="badge">{genre}</span>' if genre else ""
+    score_html   = f'<span class="badge badge-accent">{int(score*100)}% match</span>' if show_score else ""
+    bar_html     = _score_bar(score) if show_score else ""
+    rank_html    = f'<div class="rank-num">#{rank}</div>' if rank > 0 else ""
+    short_desc   = desc[:140] + ("..." if len(desc) > 140 else "")
+
+    st.markdown(f"""
+    <div class="book-card" style="animation-delay:{rank * 0.05}s">
+        {rank_html}
+        <div class="card-grid">
+            <div class="book-cover">{cover}</div>
+            <div class="card-body">
+                <div class="book-title">{title}</div>
+                <div class="book-meta">{author}</div>
+                <div style="margin-bottom:.35rem">{rating_html}{genre_html}{score_html}
+                    <a class="buy-link" href="{buy}" target="_blank" rel="noopener">Buy</a>
+                </div>
+                {bar_html}
+                <div class="book-desc-short">{short_desc}</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if len(desc) > 140:
+        with st.expander("Read full description", expanded=False):
+            st.markdown(f'<span style="color:{TEXT_SECOND};font-size:.86rem;line-height:1.6">{desc}</span>',
+                        unsafe_allow_html=True)
+
+
+def render_source_card(book: dict) -> None:
+    """Source/matched book card with cover image."""
+    title   = book.get("Title", "Unknown Title")
+    author  = book.get("Author", "Unknown Author")
+    genre   = book.get("Genre", "")
+    rating  = book.get("Rating", None)
+    isbn    = str(book.get("ISBN", ""))
+    desc    = book.get("Description", "No description available.")
+    cover   = _cover_html(isbn, title)
+    buy     = _buy_url(title, author)
+
+    rating_html  = f'<span class="badge">{rating:.1f}</span>' if isinstance(rating, (int, float)) else ""
+    genre_html   = f'<span class="badge">{genre}</span>' if genre else ""
+
+    st.markdown(f"""
+    <div class="book-card" style="border-color:{"rgba(255,255,255,0.18)" if dark else "rgba(0,0,0,0.10)"}">
+        <div class="source-label">Your Selection</div>
+        <div class="card-grid">
+            <div class="book-cover">{cover}</div>
+            <div class="card-body">
+                <div class="book-title">{title}</div>
+                <div class="book-meta">{author}</div>
+                <div style="margin-bottom:.35rem">{rating_html}{genre_html}
+                    <a class="buy-link" href="{buy}" target="_blank" rel="noopener">Buy</a>
+                </div>
+                <div class="book-desc-short">{desc[:140]}{"..." if len(desc)>140 else ""}</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if len(desc) > 140:
+        with st.expander("Read full description", expanded=False):
+            st.markdown(f'<span style="color:{TEXT_SECOND};font-size:.86rem;line-height:1.6">{desc}</span>',
+                        unsafe_allow_html=True)
+
+
+def render_no_results(query: str = "") -> None:
+    popular_genres = ["Fantasy", "Fiction", "Science Fiction", "Mystery",
+                      "Thriller", "Romance", "Horror", "Dystopian", "Non-Fiction"]
+    pills = "".join(f"<li>{g}</li>" for g in popular_genres)
+    msg = f'No results for "<b>{query}</b>".' if query else "No matching books found."
+    st.markdown(f"""
+    <div class="no-results">
+        {msg}
+        <br><span style="font-size:.84rem">Try broadening your search or pick a genre below:</span>
+        <ul>{pills}</ul>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Sidebar
+# ──────────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown(f'<div style="font-size:1.1rem;font-weight:700;color:{TITLE_CLR};margin-bottom:.5rem">⚙️ Controls</div>',
+    st.markdown(f'<div style="font-size:1rem;font-weight:600;color:{TEXT_PRIMARY};margin-bottom:.6rem;letter-spacing:-0.3px">Controls</div>',
                 unsafe_allow_html=True)
 
-    # ── Dark Mode toggle ──
-    toggled = st.toggle("🌙 Dark Mode", value=st.session_state.dark_mode, key="dm_toggle")
+    toggled = st.toggle("Dark Mode", value=st.session_state.dark_mode, key="dm_toggle")
     if toggled != st.session_state.dark_mode:
         st.session_state.dark_mode = toggled
         st.rerun()
 
-    st.markdown("---")
+    st.markdown(f'<div class="glass-divider"></div>', unsafe_allow_html=True)
 
-    # ── History ──
-    st.markdown(f'<div style="font-size:1rem;font-weight:600;color:{HDR_CLR};margin-bottom:.5rem">🕑 Recent Searches</div>',
+    # Dataset stats
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.metric("Books", f"{len(df):,}")
+    with col_b:
+        st.metric("Genres", f"{len(ALL_GENRES)}")
+
+    st.markdown(f'<div class="glass-divider"></div>', unsafe_allow_html=True)
+
+    # History
+    st.markdown(f'<div style="font-size:.88rem;font-weight:600;color:{TEXT_PRIMARY};margin-bottom:.5rem">Recent Searches</div>',
                 unsafe_allow_html=True)
 
     if not st.session_state.history:
-        st.markdown(f'<span style="font-size:.85rem;color:{SUB_CLR}">No searches yet.</span>',
+        st.markdown(f'<span style="font-size:.82rem;color:{TEXT_MUTED}">No searches yet. Try the search tabs to get started.</span>',
                     unsafe_allow_html=True)
     else:
         for i, h in enumerate(st.session_state.history):
-            icon = "🔍" if h["type"] == "genre_author" else "📖"
+            label = "Genre / Author" if h["type"] == "genre_author" else "By Title"
             st.markdown(f"""
-            <div class="hist-item">
-                {icon} <b>{h['query']}</b><br>
-                <span style="font-size:.77rem;opacity:.7">{h['type'].replace('_',' ').title()} — {len(h['results'])} results</span>
+            <div class="hist-item" style="animation-delay:{i * 0.05}s">
+                <b>{h['query']}</b><br>
+                <span style="font-size:.74rem;color:{TEXT_MUTED}">{label} · {len(h['results'])} results</span>
             </div>""", unsafe_allow_html=True)
 
-        if st.button("🗑 Clear History", key="clear_hist"):
+        if st.button("Clear History", key="clear_hist"):
             st.session_state.history = []
             st.rerun()
 
 
-# ───────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────
 # Header
-# ───────────────────────────────────────────────────────────────────────────
-st.markdown(f'<div class="main-title">📚 Smart Book Recommendation System</div>', unsafe_allow_html=True)
+# ──────────────────────────────────────────────────────────────────────────
+st.markdown(f'<div class="main-title">Smart Book Recommender</div>', unsafe_allow_html=True)
 st.markdown(
-    f'<div class="subtitle">Powered by <b>Best-First Search</b> &amp; Heuristic AI &nbsp;·&nbsp; '
-    f'Exploring <b>{len(df):,}</b> books</div>',
+    f'<div class="subtitle">Best-First Search · Heuristic AI · '
+    f'{len(df):,} books</div>',
     unsafe_allow_html=True,
 )
 
-# ───────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────
 # Tabs
-# ───────────────────────────────────────────────────────────────────────────
-tab1, tab2 = st.tabs(["🔍  Recommend by Genre & Author", "📖  Recommend by Book Title"])
+# ──────────────────────────────────────────────────────────────────────────
+tab1, tab2 = st.tabs(["By Genre & Author", "By Book Title"])
 
 
-# ═══════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════
 # TAB 1 — Genre & Author
-# ═══════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════
 with tab1:
-    st.markdown(f'<div class="section-header">Search by Preferred Genre &amp; Favourite Author</div>',
+    st.markdown(f'<div class="section-header">Search by Genre & Author</div>',
                 unsafe_allow_html=True)
     st.markdown(
-        f'<div class="info-box">💡 Enter a genre (e.g. <i>Fantasy</i>, <i>Mystery</i>) and/or an author. '
-        'Best-First Search with a weighted heuristic h(n) = 0.6×Genre + 0.4×Author will rank results.</div>',
+        f'<div class="info-box">Pick a genre from the dropdown and optionally type an author name. '
+        'Press Enter or click the button to search. The system uses a Best-First Search heuristic '
+        '(0.6 Genre + 0.4 Author) to rank results.</div>',
         unsafe_allow_html=True,
     )
 
-    col1, col2, col3 = st.columns([2, 2, 1])
-    with col1:
-        genre_input = st.text_input("🎭 Preferred Genre",
-                                    placeholder="e.g. Fantasy, Science Fiction…",
-                                    key="genre_input")
-    with col2:
-        author_input = st.text_input("✍️ Favourite Author",
-                                     placeholder="e.g. Rowling, Tolkien…",
-                                     key="author_input")
-    with col3:
-        top_n_1 = st.select_slider("📊 Top N", options=[5, 10, 15], value=10, key="topn1")
+    with st.form("genre_author_form", clear_on_submit=False):
+        col1, col2, col3 = st.columns([2, 2, 1])
+        with col1:
+            genre_options = ["(Any genre)"] + ALL_GENRES
+            genre_selected = st.selectbox("Genre", options=genre_options, key="genre_select")
+            genre_input = "" if genre_selected == "(Any genre)" else genre_selected
+        with col2:
+            author_input = st.text_input("Author",
+                                         placeholder="e.g. Rowling, Tolkien...",
+                                         key="author_input")
+        with col3:
+            top_n_1 = st.select_slider("Results", options=[5, 10, 15], value=10, key="topn1")
 
-    if st.button("🚀 Get Recommendations", key="btn_genre_author"):
+        submitted_1 = st.form_submit_button("Get Recommendations")
+
+    if submitted_1:
         if not genre_input.strip() and not author_input.strip():
-            st.warning("⚠️ Please enter at least a genre or an author name.")
+            st.warning("Please enter at least a genre or an author name.")
         else:
-            with st.spinner("🔍 Running Best-First Search…"):
+            with st.spinner("Searching..."):
                 top_book, similar_df = recommend_by_genre_author(
                     df,
                     preferred_genre=genre_input,
@@ -598,17 +869,16 @@ with tab1:
 
                 all_results = pd.DataFrame([top_book])
                 if not similar_df.empty:
-                    st.markdown(f'<div class="section-header" style="margin-top:1.3rem">📋 Similar Books You Might Enjoy</div>',
+                    st.markdown(f'<div class="section-header" style="margin-top:1.3rem">More Recommendations</div>',
                                 unsafe_allow_html=True)
                     for i, (_, row) in enumerate(similar_df.iterrows()):
-                        render_book_card(row.to_dict(), idx=i)
+                        render_book_card(row.to_dict(), rank=i + 2)
                     all_results = pd.concat([all_results, similar_df], ignore_index=True)
 
-                # Save button
                 query_label = f"Genre:{genre_input} Author:{author_input}".strip()
                 add_to_history(query_label, "genre_author", all_results)
                 st.download_button(
-                    label="💾 Save Recommendations as CSV",
+                    label="Save as CSV",
                     data=df_to_csv_bytes(all_results),
                     file_name="book_recommendations.csv",
                     mime="text/csv",
@@ -616,42 +886,44 @@ with tab1:
                 )
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# TAB 2 — Book Title (with Autocomplete)
-# ═══════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════
+# TAB 2 — Book Title
+# ══════════════════════════════════════════════════════════════════════════
 with tab2:
     st.markdown(f'<div class="section-header">Search by Book Title</div>', unsafe_allow_html=True)
     st.markdown(
-        f'<div class="info-box">📖 Start typing a book title — the autocomplete will suggest matches '
-        'from the dataset. The system extracts its genre &amp; author to drive Best-First Search.</div>',
+        f'<div class="info-box">Type to filter titles, select one from the dropdown, then submit. '
+        'The system extracts the book\'s genre and author to find similar reads.</div>',
         unsafe_allow_html=True,
     )
 
-    col_t, col_n = st.columns([3, 1])
-    with col_t:
-        # Free-text filter → selectbox autocomplete
-        title_filter = st.text_input("🔎 Filter titles…", placeholder="Type to search…", key="title_filter")
-        if title_filter.strip():
-            filtered_titles = [t for t in ALL_TITLES
-                               if title_filter.strip().lower() in t.lower()][:60]
-        else:
-            filtered_titles = ALL_TITLES[:60]
+    # Title filter lives outside the form so it updates the selectbox dynamically
+    title_filter = st.text_input("Filter titles...", placeholder="Start typing a book name...", key="title_filter")
+    if title_filter.strip():
+        filtered_titles = [t for t in ALL_TITLES
+                           if title_filter.strip().lower() in t.lower()][:60]
+    else:
+        filtered_titles = ALL_TITLES[:60]
 
-        if not filtered_titles:
-            st.warning("No matching titles — try a different keyword.")
-            title_selected = ""
-        else:
-            title_selected = st.selectbox("📕 Select Book Title", options=filtered_titles,
-                                          key="title_select")
+    with st.form("title_form", clear_on_submit=False):
+        col_t, col_n = st.columns([3, 1])
+        with col_t:
+            if not filtered_titles:
+                st.warning("No matching titles — try a different keyword.")
+                title_selected = ""
+            else:
+                title_selected = st.selectbox("Select Book", options=filtered_titles,
+                                              key="title_select")
+        with col_n:
+            top_n_2 = st.select_slider("Results", options=[5, 10, 15], value=10, key="topn2")
 
-    with col_n:
-        top_n_2 = st.select_slider("📊 Top N", options=[5, 10, 15], value=10, key="topn2")
+        submitted_2 = st.form_submit_button("Find Similar Books")
 
-    if st.button("🚀 Find Similar Books", key="btn_title"):
+    if submitted_2:
         if not title_selected:
-            st.warning("⚠️ Please select a book title.")
+            st.warning("Please select a book title.")
         else:
-            with st.spinner("🔍 Searching and running Best-First Search…"):
+            with st.spinner("Searching..."):
                 found_book, top_book, similar_df = recommend_by_title(
                     df,
                     title_query=title_selected,
@@ -664,10 +936,10 @@ with tab2:
                 render_source_card(found_book)
 
                 st.markdown(
-                    f'<div class="info-box" style="margin-top:.4rem">🧠 Extracted — '
-                    f'<b>Genre:</b> {found_book.get("Genre","—")} &nbsp;|&nbsp; '
-                    f'<b>Author:</b> {found_book.get("Author","—")}<br>'
-                    f'Using these as heuristic inputs for Best-First Search…</div>',
+                    f'<div class="info-box" style="margin-top:.4rem">'
+                    f'<b>Genre:</b> {found_book.get("Genre","—")} &nbsp;·&nbsp; '
+                    f'<b>Author:</b> {found_book.get("Author","—")} — '
+                    f'using these as search heuristics.</div>',
                     unsafe_allow_html=True,
                 )
 
@@ -680,16 +952,16 @@ with tab2:
                         all_results = pd.DataFrame([top_book])
 
                     if not similar_df.empty:
-                        st.markdown(f'<div class="section-header" style="margin-top:1.3rem">📋 More Books You Might Enjoy</div>',
+                        st.markdown(f'<div class="section-header" style="margin-top:1.3rem">More Recommendations</div>',
                                     unsafe_allow_html=True)
                         for i, (_, row) in enumerate(similar_df.iterrows()):
-                            render_book_card(row.to_dict(), idx=i)
+                            render_book_card(row.to_dict(), rank=i + 2)
                         all_results = pd.concat([all_results, similar_df], ignore_index=True)
 
                     add_to_history(title_selected, "by_title", all_results)
                     if not all_results.empty:
                         st.download_button(
-                            label="💾 Save Recommendations as CSV",
+                            label="Save as CSV",
                             data=df_to_csv_bytes(all_results),
                             file_name="book_recommendations.csv",
                             mime="text/csv",
@@ -697,15 +969,12 @@ with tab2:
                         )
 
 
-# ───────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────
 # Footer
-# ───────────────────────────────────────────────────────────────────────────
-st.markdown("<br>", unsafe_allow_html=True)
+# ──────────────────────────────────────────────────────────────────────────
+st.markdown(f'<div class="glass-divider"></div>', unsafe_allow_html=True)
 st.markdown(f"""
-<div style="text-align:center;color:{SUB_CLR};font-size:.82rem;padding:1rem 0;">
-    📚 Smart Book Recommendation System &nbsp;·&nbsp;
-    Best-First Search &nbsp;·&nbsp;
-    h(n) = 0.6 × Genre + 0.4 × Author &nbsp;·&nbsp;
-    Built with Python &amp; Streamlit
+<div style="text-align:center;color:{TEXT_MUTED};font-size:.78rem;padding:.5rem 0;letter-spacing:0.3px;">
+    Smart Book Recommender &nbsp;·&nbsp; Best-First Search &nbsp;·&nbsp; Python + Streamlit
 </div>
 """, unsafe_allow_html=True)
