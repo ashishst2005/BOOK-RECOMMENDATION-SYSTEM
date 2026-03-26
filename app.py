@@ -6,6 +6,7 @@ Smart Book Recommendation System — Streamlit Frontend
 Design: True black / white, glassmorphism, no emojis, minimalist premium.
 """
 
+import io
 import urllib.parse
 import streamlit as st
 import pandas as pd
@@ -627,12 +628,16 @@ ALL_GENRES: list[str] = sorted(df["Genre"].dropna().unique().tolist())
 # ──────────────────────────────────────────────────────────────────────────
 # Utilities
 # ──────────────────────────────────────────────────────────────────────────
-def _cover_html(isbn: str, title: str) -> str:
-    """Return <img> from Open Library Covers API, or a fallback letter."""
+def _cover_html(isbn: str, title: str, cover_url: str = "") -> str:
+    """Return <img> using CoverURL, Open Library ISBN fallback, or letter."""
     fallback = title[0].upper() if title else "B"
+    # Prefer the direct cover URL from the dataset (e.g. Goodreads)
+    if cover_url and cover_url.strip() and cover_url.strip() != "nan":
+        return f'<img src="{cover_url.strip()}" alt="{title}" class="book-cover-img" onerror="this.outerHTML=\'{fallback}\'" loading="lazy">'
+    # Fallback: Open Library Covers API via ISBN
     if isbn and isbn.strip() and isbn.strip() != "nan":
         url = f"https://covers.openlibrary.org/b/isbn/{isbn.strip()}-M.jpg"
-        return f'<img src="{url}" alt="{title}" onerror="this.outerHTML=\'{fallback}\'" loading="lazy">'
+        return f'<img src="{url}" alt="{title}" class="book-cover-img" onerror="this.outerHTML=\'{fallback}\'" loading="lazy">'
     return f'<span class="book-cover-fallback">{fallback}</span>'
 
 
@@ -678,11 +683,12 @@ def render_top_book(book: dict) -> None:
     genre  = book.get("Genre", "—")
     rating = book.get("Rating", None)
     isbn   = str(book.get("ISBN", ""))
+    cover_url = str(book.get("CoverURL", ""))
     rating_str = f"{rating:.1f} / 5.0" if isinstance(rating, (int, float)) else "—"
     score = book.get("Score", 0)
     pct = int(score * 100)
     desc = book.get("Description", "No description available.")
-    cover = _cover_html(isbn, title)
+    cover = _cover_html(isbn, title, cover_url)
     buy  = _buy_url(title, author)
     st.markdown(f"""
     <div class="top-rec-banner">
@@ -717,9 +723,10 @@ def render_book_card(book: dict, rank: int = 0, show_score: bool = True) -> None
     genre   = book.get("Genre", "")
     rating  = book.get("Rating", None)
     isbn    = str(book.get("ISBN", ""))
+    cover_url = str(book.get("CoverURL", ""))
     score   = book.get("Score", 0)
     desc    = book.get("Description", "No description available.")
-    cover   = _cover_html(isbn, title)
+    cover   = _cover_html(isbn, title, cover_url)
     buy     = _buy_url(title, author)
 
     rating_html  = f'<span class="badge">{rating:.1f}</span>' if isinstance(rating, (int, float)) else ""
@@ -760,8 +767,9 @@ def render_source_card(book: dict) -> None:
     genre   = book.get("Genre", "")
     rating  = book.get("Rating", None)
     isbn    = str(book.get("ISBN", ""))
+    cover_url = str(book.get("CoverURL", ""))
     desc    = book.get("Description", "No description available.")
-    cover   = _cover_html(isbn, title)
+    cover   = _cover_html(isbn, title, cover_url)
     buy     = _buy_url(title, author)
 
     rating_html  = f'<span class="badge">{rating:.1f}</span>' if isinstance(rating, (int, float)) else ""

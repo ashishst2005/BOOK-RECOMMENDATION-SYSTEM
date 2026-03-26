@@ -5,6 +5,7 @@ Handles loading and preprocessing of the GoodReads_100k_books.csv dataset.
 Falls back to a built-in sample dataset if the CSV is not found.
 """
 
+import ast
 import os
 import pandas as pd
 
@@ -158,25 +159,35 @@ SAMPLE_BOOKS = [
 
 
 def _extract_first_genre(genre_str: str) -> str:
-    """Return the first genre from a comma/pipe/slash-separated string."""
+    """Return the first genre from a list-string or comma/pipe/slash-separated string."""
     if not isinstance(genre_str, str):
         return ""
+    # Handle Python list strings like "['Fantasy', 'Young Adult']"
+    s = genre_str.strip()
+    if s.startswith("["):
+        try:
+            items = ast.literal_eval(s)
+            if isinstance(items, list) and items:
+                return str(items[0]).strip()
+        except (ValueError, SyntaxError):
+            pass
     for sep in [",", "|", "/"]:
         if sep in genre_str:
             return genre_str.split(sep)[0].strip()
     return genre_str.strip()
 
 
-def load_dataset(csv_path: str = "GoodReads_100k_books.csv", max_rows: int = 20000) -> pd.DataFrame:
+def load_dataset(csv_path: str = "Book_Details.csv", max_rows: int = 20000) -> pd.DataFrame:
     """
-    Load and preprocess the GoodReads dataset.
+    Load and preprocess a book dataset.
 
     Priority:
-      1. Local CSV file (csv_path)
-      2. Built-in sample dataset
+      1. Book_Details.csv (default)
+      2. Any other CSV at csv_path
+      3. Built-in sample dataset
 
     Returns a cleaned DataFrame with columns:
-      Title, Author, Genre, Rating, ISBN, Description
+      Title, Author, Genre, Rating, ISBN, Description, CoverURL
     """
 
     # ---- Try loading the CSV ----
@@ -189,12 +200,13 @@ def load_dataset(csv_path: str = "GoodReads_100k_books.csv", max_rows: int = 200
             lower_cols = {c.lower(): c for c in df.columns}
 
             for target, candidates in {
-                "Title":       ["title", "book_title", "name"],
+                "Title":       ["book_title", "title", "name"],
                 "Author":      ["author", "authors", "book_author"],
-                "Genre":       ["genre", "genres", "categories", "shelves"],
-                "Rating":      ["rating", "average_rating", "avg_rating", "book_average_rating"],
+                "Genre":       ["genres", "genre", "categories", "shelves"],
+                "Rating":      ["average_rating", "rating", "avg_rating", "book_average_rating"],
                 "ISBN":        ["isbn", "isbn13", "isbn_13"],
-                "Description": ["desc", "description", "synopsis", "summary", "book_desc"],
+                "Description": ["book_details", "desc", "description", "synopsis", "summary", "book_desc"],
+                "CoverURL":    ["cover_image_uri", "cover_url", "image_url", "thumbnail"],
             }.items():
                 for cand in candidates:
                     if cand in lower_cols:
@@ -204,8 +216,10 @@ def load_dataset(csv_path: str = "GoodReads_100k_books.csv", max_rows: int = 200
             df = df.rename(columns=col_map)
 
             # Keep only the columns that we managed to map
-            available = [c for c in ["Title", "Author", "Genre", "Rating", "ISBN", "Description"] if c in df.columns]
-            df = df[available].dropna(subset=[c for c in available if c != "ISBN"])
+            keep_cols = ["Title", "Author", "Genre", "Rating", "ISBN", "Description", "CoverURL"]
+            available = [c for c in keep_cols if c in df.columns]
+            required = [c for c in available if c not in ("ISBN", "CoverURL")]
+            df = df[available].dropna(subset=required)
 
             # Ensure Rating is numeric
             if "Rating" in df.columns:
@@ -218,9 +232,14 @@ def load_dataset(csv_path: str = "GoodReads_100k_books.csv", max_rows: int = 200
                 df["Genre"] = df["Genre"].apply(_extract_first_genre)
                 df = df[df["Genre"].str.strip() != ""]
 
-            # Ensure ISBN column exists
+            # Ensure optional columns exist
             if "ISBN" not in df.columns:
                 df["ISBN"] = ""
+            if "CoverURL" not in df.columns:
+                df["CoverURL"] = ""
+
+            # Drop duplicate titles (keep first / highest rated)
+            df = df.drop_duplicates(subset=["Title"], keep="first")
 
             # Limit rows for performance
             if len(df) > max_rows:
@@ -229,6 +248,7 @@ def load_dataset(csv_path: str = "GoodReads_100k_books.csv", max_rows: int = 200
             df = df.reset_index(drop=True)
 
             if len(df) > 0:
+                print(f"[data_loader] Loaded {len(df)} books from {csv_path}.")
                 return df
 
         except Exception as exc:
@@ -238,5 +258,7 @@ def load_dataset(csv_path: str = "GoodReads_100k_books.csv", max_rows: int = 200
     print(f"[data_loader] Using built-in sample dataset ({len(SAMPLE_BOOKS)} books).")
     df = pd.DataFrame(SAMPLE_BOOKS)
     df["Genre"] = df["Genre"].apply(_extract_first_genre)
+    if "CoverURL" not in df.columns:
+        df["CoverURL"] = ""
     df = df.reset_index(drop=True)
     return df

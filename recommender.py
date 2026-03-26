@@ -80,6 +80,7 @@ def best_first_search(
             "Rating":      row.get("Rating", 0.0),
             "ISBN":        str(row.get("ISBN", "")),
             "Description": str(row.get("Description", "")),
+            "CoverURL":    str(row.get("CoverURL", "")),
         }
         score = heuristic(
             book_dict["Genre"],
@@ -171,6 +172,7 @@ def recommend_by_title(
         "Rating":      source_row.get("Rating", 0.0),
         "ISBN":        str(source_row.get("ISBN", "")),
         "Description": str(source_row.get("Description", "")),
+        "CoverURL":    str(source_row.get("CoverURL", "")),
     }
 
     preferred_genre  = found_book["Genre"]
