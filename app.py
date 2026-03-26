@@ -6,7 +6,6 @@ Smart Book Recommendation System — Streamlit Frontend
 Design: True black / white, glassmorphism, no emojis, minimalist premium.
 """
 
-import io
 import urllib.parse
 import streamlit as st
 import pandas as pd
