@@ -6,7 +6,9 @@ Smart Book Recommendation System — Streamlit Frontend
 Design: True black / white, glassmorphism, no emojis, minimalist premium.
 """
 
+import html
 import io
+import math
 import urllib.parse
 import streamlit as st
 import pandas as pd
@@ -31,6 +33,12 @@ if "dark_mode" not in st.session_state:
     st.session_state.dark_mode = True      # default to dark for glass effect
 if "history" not in st.session_state:
     st.session_state.history = []
+if "view_mode" not in st.session_state:
+    st.session_state.view_mode = "tiles"   # "tiles" or "list"
+if "tab1_results" not in st.session_state:
+    st.session_state.tab1_results = None   # cached genre/author results
+if "tab2_results" not in st.session_state:
+    st.session_state.tab2_results = None   # cached title results
 
 dark = st.session_state.dark_mode
 
@@ -607,6 +615,112 @@ label,
     margin: 1.5rem 0;
     animation: fadeIn 0.4s ease;
 }}
+
+/* ── Tile / Grid View ── */
+.tile-grid {{
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 1rem;
+    animation: fadeIn 0.4s ease;
+}}
+.tile-card {{
+    background: {GLASS};
+    border: 1px solid {GLASS_BDR};
+    border-radius: 14px;
+    padding: 0;
+    overflow: hidden;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
+    animation: fadeInUp 0.45s ease both;
+    display: flex;
+    flex-direction: column;
+}}
+.tile-card:hover {{
+    background: {"rgba(255,255,255,0.09)" if dark else "rgba(0,0,0,0.04)"};
+    border-color: {"rgba(255,255,255,0.18)" if dark else "rgba(0,0,0,0.10)"};
+    transform: translateY(-4px);
+    box-shadow: 0 12px 32px {"rgba(0,0,0,0.4)" if dark else "rgba(0,0,0,0.10)"};
+}}
+.tile-cover {{
+    width: 100%;
+    aspect-ratio: 2/3;
+    background: {ACCENT_DIM};
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+}}
+.tile-cover img {{
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}}
+.tile-cover-fallback {{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    font-size: 2.2rem;
+    font-weight: 700;
+    color: {TEXT_MUTED};
+}}
+.tile-body {{
+    padding: 0.75rem 0.9rem 0.9rem;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}}
+.tile-title {{
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: {TEXT_PRIMARY};
+    margin-bottom: 0.15rem;
+    letter-spacing: -0.2px;
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}}
+.tile-author {{
+    font-size: 0.76rem;
+    color: {TEXT_SECOND};
+    margin-bottom: 0.4rem;
+}}
+.tile-badges {{
+    margin-top: auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}}
+.tile-rank {{
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    background: {"rgba(0,0,0,0.65)" if dark else "rgba(255,255,255,0.85)"};
+    backdrop-filter: blur(8px);
+    color: {TEXT_PRIMARY};
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 0.15rem 0.5rem;
+    border-radius: 20px;
+    letter-spacing: 0.5px;
+}}
+.tile-score-pill {{
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: {TEXT_PRIMARY};
+    color: {BG_PRIMARY};
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 0.15rem 0.5rem;
+    border-radius: 20px;
+}}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -676,6 +790,19 @@ def add_to_history(query: str, qtype: str, results_df: pd.DataFrame) -> None:
 # ──────────────────────────────────────────────────────────────────────────
 # Render helpers
 # ──────────────────────────────────────────────────────────────────────────
+def _tile_cover_html(isbn: str, title: str, cover_url: str = "") -> str:
+    """Return <img> for tile view (larger, no fallback span wrapper)."""
+    fallback = html.escape(title[0].upper()) if title else "B"
+    safe_title = html.escape(title, quote=True)
+    if cover_url and cover_url.strip() and cover_url.strip() != "nan":
+        src = html.escape(cover_url.strip(), quote=True)
+        return f'<img src="{src}" alt="{safe_title}" onerror="this.style.display=&quot;none&quot;;this.parentElement.innerHTML=&quot;{fallback}&quot;" loading="lazy">'
+    if isbn and isbn.strip() and isbn.strip() != "nan":
+        url = f"https://covers.openlibrary.org/b/isbn/{isbn.strip()}-M.jpg"
+        return f'<img src="{url}" alt="{safe_title}" onerror="this.style.display=&quot;none&quot;;this.parentElement.innerHTML=&quot;{fallback}&quot;" loading="lazy">'
+    return f'<div class="tile-cover-fallback">{fallback}</div>'
+
+
 def render_top_book(book: dict) -> None:
     """Highlighted banner for the #1 recommendation."""
     title  = book.get("Title", "Unknown Title")
@@ -717,7 +844,7 @@ def render_top_book(book: dict) -> None:
 
 
 def render_book_card(book: dict, rank: int = 0, show_score: bool = True) -> None:
-    """Glass card for a recommendation with cover image and buy link."""
+    """Glass card for a recommendation with cover image and buy link (list view)."""
     title   = book.get("Title", "Unknown Title")
     author  = book.get("Author", "Unknown Author")
     genre   = book.get("Genre", "")
@@ -758,6 +885,174 @@ def render_book_card(book: dict, rank: int = 0, show_score: bool = True) -> None
         with st.expander("Read full description", expanded=False):
             st.markdown(f'<span style="color:{TEXT_SECOND};font-size:.86rem;line-height:1.6">{desc}</span>',
                         unsafe_allow_html=True)
+
+
+def _build_tile_html(book: dict, rank: int = 0, show_score: bool = True) -> str:
+    """Return the HTML string for a single tile card."""
+    title   = html.escape(book.get("Title", "Unknown Title"), quote=True)
+    author  = html.escape(book.get("Author", "Unknown Author"), quote=True)
+    genre   = html.escape(book.get("Genre", ""), quote=True)
+    rating  = book.get("Rating", None)
+    isbn    = str(book.get("ISBN", ""))
+    cover_url = str(book.get("CoverURL", ""))
+    score   = book.get("Score", 0)
+    cover   = _tile_cover_html(isbn, book.get("Title", "Unknown Title"), cover_url)
+    buy     = _buy_url(book.get("Title", ""), book.get("Author", ""))
+
+    rank_html  = f'<div class="tile-rank">#{rank}</div>' if rank > 0 else ""
+    score_html = f'<div class="tile-score-pill">{int(score*100)}%</div>' if show_score else ""
+    rating_badge = f'<span class="badge">{rating:.1f}</span>' if isinstance(rating, (int, float)) else ""
+    genre_badge  = f'<span class="badge">{genre}</span>' if genre else ""
+
+    return (
+        f'<a href="{html.escape(buy, quote=True)}" target="_blank" rel="noopener" '
+        f'style="text-decoration:none;color:inherit;">'
+        f'<div class="tile-card" style="animation-delay:{rank * 0.04}s">'
+        f'<div class="tile-cover">{rank_html}{score_html}{cover}</div>'
+        f'<div class="tile-body">'
+        f'<div class="tile-title">{title}</div>'
+        f'<div class="tile-author">{author}</div>'
+        f'<div class="tile-badges">{rating_badge}{genre_badge}</div>'
+        f'</div></div></a>'
+    )
+
+
+def render_tiles(books: list[dict], start_rank: int = 2, show_score: bool = True) -> None:
+    """Render a list of book dicts as a tile grid."""
+    tiles_html = "".join(
+        _build_tile_html(b, rank=start_rank + i, show_score=show_score)
+        for i, b in enumerate(books)
+    )
+    st.markdown(f'<div class="tile-grid">{tiles_html}</div>', unsafe_allow_html=True)
+
+
+def render_view_toggle(key_suffix: str = "main") -> None:
+    """Render the tiles / list toggle using st.radio with a stable key."""
+    mode = st.radio(
+        "View",
+        options=["tiles", "list"],
+        index=0 if st.session_state.view_mode == "tiles" else 1,
+        format_func=lambda x: "▦  Tiles" if x == "tiles" else "☰  List",
+        horizontal=True,
+        key=f"view_toggle_{key_suffix}",
+        label_visibility="collapsed",
+    )
+    if mode != st.session_state.view_mode:
+        st.session_state.view_mode = mode
+        st.rerun()
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Evaluation Metrics
+# ──────────────────────────────────────────────────────────────────────────
+def compute_metrics(
+    results_df: pd.DataFrame,
+    target_genre: str = "",
+    target_author: str = "",
+) -> dict:
+    """
+    Compute evaluation metrics for the recommendation results.
+
+    Metrics:
+      - Genre Precision@K: fraction of results matching target genre
+      - Author Recall:     whether any result matches the target author
+      - Mean Match Score:  average heuristic score across results
+      - NDCG@K:           Normalized Discounted Cumulative Gain
+      - Coverage:          number of unique genres in results / unique authors
+    """
+    if results_df.empty:
+        return {}
+
+    k = len(results_df)
+    scores = results_df["Score"].tolist() if "Score" in results_df.columns else []
+
+    # Genre Precision@K
+    genre_precision = 0.0
+    if target_genre.strip():
+        genre_matches = sum(
+            1 for g in results_df["Genre"].fillna("")
+            if target_genre.strip().lower() in str(g).lower()
+        )
+        genre_precision = genre_matches / k if k else 0.0
+
+    # Author Recall (binary: did we find at least one book by this author?)
+    author_recall = 0.0
+    if target_author.strip():
+        author_hits = sum(
+            1 for a in results_df["Author"].fillna("")
+            if target_author.strip().lower() in str(a).lower()
+        )
+        author_recall = min(author_hits / max(1, k), 1.0)
+
+    # F1 Score (harmonic mean of genre precision and author recall)
+    f1 = 0.0
+    if (genre_precision + author_recall) > 0:
+        f1 = 2 * (genre_precision * author_recall) / (genre_precision + author_recall)
+
+    # Mean Match Score
+    mean_score = sum(scores) / len(scores) if scores else 0.0
+
+    # NDCG@K — using heuristic scores as relevance
+    dcg = 0.0
+    for i, s in enumerate(scores):
+        dcg += s / math.log2(i + 2)  # i+2 because position is 1-indexed
+    ideal_scores = sorted(scores, reverse=True)
+    idcg = 0.0
+    for i, s in enumerate(ideal_scores):
+        idcg += s / math.log2(i + 2)
+    ndcg = dcg / idcg if idcg > 0 else 0.0
+
+    # Coverage
+    unique_genres  = results_df["Genre"].fillna("").nunique()
+    unique_authors = results_df["Author"].fillna("").nunique()
+
+    return {
+        "Genre Precision@K": genre_precision,
+        "Author Recall": author_recall,
+        "F1 Score": f1,
+        "Mean Match Score": mean_score,
+        "NDCG@K": ndcg,
+        "Unique Genres": unique_genres,
+        "Unique Authors": unique_authors,
+        "K (result count)": k,
+    }
+
+
+def render_metrics_panel(metrics: dict) -> None:
+    """Render evaluation metrics in a styled expander."""
+    if not metrics:
+        return
+
+    with st.expander("Evaluation Metrics", expanded=False):
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("F1 Score", f"{metrics['F1 Score']:.2%}")
+        with col2:
+            st.metric("Genre Prec.", f"{metrics['Genre Precision@K']:.2%}")
+        with col3:
+            st.metric("Author Recall", f"{metrics['Author Recall']:.2%}")
+        with col4:
+            st.metric("NDCG@K", f"{metrics['NDCG@K']:.3f}")
+
+        col5, col6, col7, col8 = st.columns(4)
+        with col5:
+            st.metric("Mean Score", f"{metrics['Mean Match Score']:.2%}")
+        with col6:
+            st.metric("Genres Found", metrics["Unique Genres"])
+        with col7:
+            st.metric("Authors Found", metrics["Unique Authors"])
+        with col8:
+            st.metric("Results (K)", metrics["K (result count)"])
+
+        st.markdown(
+            f'<div style="font-size:.78rem;color:{TEXT_MUTED};margin-top:.5rem;line-height:1.6">'
+            '<b>Genre Precision@K</b> — fraction of results matching the target genre. '
+            '<b>Author Recall</b> — fraction of results by the target author. '
+            '<b>F1 Score</b> — harmonic mean of precision &amp; recall. '
+            '<b>NDCG@K</b> — ranking quality (1.0 = perfect ordering). '
+            '<b>Mean Score</b> — average heuristic score (0.6×genre + 0.4×author).</div>',
+            unsafe_allow_html=True,
+        )
 
 
 def render_source_card(book: dict) -> None:
@@ -911,29 +1206,53 @@ with tab1:
                     preferred_author=author_input,
                     top_n=top_n_1,
                 )
+            # Cache results in session state
+            st.session_state.tab1_results = {
+                "top_book": top_book,
+                "similar_df": similar_df,
+                "genre_input": genre_input,
+                "author_input": author_input,
+            }
 
-            if top_book is None:
-                render_no_results(f"{genre_input} / {author_input}".strip(" /"))
-            else:
-                render_top_book(top_book)
+    # Display results from session state (survives rerun from toggle)
+    if st.session_state.tab1_results is not None:
+        res = st.session_state.tab1_results
+        top_book = res["top_book"]
+        similar_df = res["similar_df"]
+        genre_input_cached = res["genre_input"]
+        author_input_cached = res["author_input"]
 
-                all_results = pd.DataFrame([top_book])
-                if not similar_df.empty:
-                    st.markdown(f'<div class="section-header" style="margin-top:1.3rem">More Recommendations</div>',
-                                unsafe_allow_html=True)
+        if top_book is None:
+            render_no_results(f"{genre_input_cached} / {author_input_cached}".strip(" /"))
+        else:
+            render_top_book(top_book)
+
+            all_results = pd.DataFrame([top_book])
+            if not similar_df.empty:
+                st.markdown(f'<div class="section-header" style="margin-top:1.3rem">More Recommendations</div>',
+                            unsafe_allow_html=True)
+                render_view_toggle(key_suffix="tab1")
+                if st.session_state.view_mode == "tiles":
+                    render_tiles([row.to_dict() for _, row in similar_df.iterrows()], start_rank=2)
+                else:
                     for i, (_, row) in enumerate(similar_df.iterrows()):
                         render_book_card(row.to_dict(), rank=i + 2)
-                    all_results = pd.concat([all_results, similar_df], ignore_index=True)
+                all_results = pd.concat([all_results, similar_df], ignore_index=True)
 
-                query_label = f"Genre:{genre_input} Author:{author_input}".strip()
+            # Evaluation metrics
+            metrics = compute_metrics(all_results, target_genre=genre_input_cached, target_author=author_input_cached)
+            render_metrics_panel(metrics)
+
+            if submitted_1:
+                query_label = f"Genre:{genre_input_cached} Author:{author_input_cached}".strip()
                 add_to_history(query_label, "genre_author", all_results)
-                st.download_button(
-                    label="Save as CSV",
-                    data=df_to_csv_bytes(all_results),
-                    file_name="book_recommendations.csv",
-                    mime="text/csv",
-                    key="dl1",
-                )
+            st.download_button(
+                label="Save as CSV",
+                data=df_to_csv_bytes(all_results),
+                file_name="book_recommendations.csv",
+                mime="text/csv",
+                key="dl1",
+            )
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -979,44 +1298,72 @@ with tab2:
                     title_query=title_selected,
                     top_n=top_n_2,
                 )
+            # Cache results in session state
+            st.session_state.tab2_results = {
+                "found_book": found_book,
+                "top_book": top_book,
+                "similar_df": similar_df,
+                "title_selected": title_selected,
+            }
 
-            if found_book is None:
-                render_no_results(title_selected)
+    # Display results from session state (survives rerun from toggle)
+    if st.session_state.tab2_results is not None:
+        res = st.session_state.tab2_results
+        found_book = res["found_book"]
+        top_book = res["top_book"]
+        similar_df = res["similar_df"]
+        title_cached = res["title_selected"]
+
+        if found_book is None:
+            render_no_results(title_cached)
+        else:
+            render_source_card(found_book)
+
+            st.markdown(
+                f'<div class="info-box" style="margin-top:.4rem">'
+                f'<b>Genre:</b> {found_book.get("Genre","—")} &nbsp;·&nbsp; '
+                f'<b>Author:</b> {found_book.get("Author","—")} — '
+                f'using these as search heuristics.</div>',
+                unsafe_allow_html=True,
+            )
+
+            if top_book is None and similar_df.empty:
+                render_no_results()
             else:
-                render_source_card(found_book)
+                all_results = pd.DataFrame()
+                if top_book:
+                    render_top_book(top_book)
+                    all_results = pd.DataFrame([top_book])
 
-                st.markdown(
-                    f'<div class="info-box" style="margin-top:.4rem">'
-                    f'<b>Genre:</b> {found_book.get("Genre","—")} &nbsp;·&nbsp; '
-                    f'<b>Author:</b> {found_book.get("Author","—")} — '
-                    f'using these as search heuristics.</div>',
-                    unsafe_allow_html=True,
-                )
-
-                if top_book is None and similar_df.empty:
-                    render_no_results()
-                else:
-                    all_results = pd.DataFrame()
-                    if top_book:
-                        render_top_book(top_book)
-                        all_results = pd.DataFrame([top_book])
-
-                    if not similar_df.empty:
-                        st.markdown(f'<div class="section-header" style="margin-top:1.3rem">More Recommendations</div>',
-                                    unsafe_allow_html=True)
+                if not similar_df.empty:
+                    st.markdown(f'<div class="section-header" style="margin-top:1.3rem">More Recommendations</div>',
+                                unsafe_allow_html=True)
+                    render_view_toggle(key_suffix="tab2")
+                    if st.session_state.view_mode == "tiles":
+                        render_tiles([row.to_dict() for _, row in similar_df.iterrows()], start_rank=2)
+                    else:
                         for i, (_, row) in enumerate(similar_df.iterrows()):
                             render_book_card(row.to_dict(), rank=i + 2)
-                        all_results = pd.concat([all_results, similar_df], ignore_index=True)
+                    all_results = pd.concat([all_results, similar_df], ignore_index=True)
 
-                    add_to_history(title_selected, "by_title", all_results)
-                    if not all_results.empty:
-                        st.download_button(
-                            label="Save as CSV",
-                            data=df_to_csv_bytes(all_results),
-                            file_name="book_recommendations.csv",
-                            mime="text/csv",
-                            key="dl2",
-                        )
+                # Evaluation metrics
+                metrics = compute_metrics(
+                    all_results,
+                    target_genre=found_book.get("Genre", ""),
+                    target_author=found_book.get("Author", ""),
+                )
+                render_metrics_panel(metrics)
+
+                if submitted_2:
+                    add_to_history(title_cached, "by_title", all_results)
+                if not all_results.empty:
+                    st.download_button(
+                        label="Save as CSV",
+                        data=df_to_csv_bytes(all_results),
+                        file_name="book_recommendations.csv",
+                        mime="text/csv",
+                        key="dl2",
+                    )
 
 
 # ──────────────────────────────────────────────────────────────────────────
